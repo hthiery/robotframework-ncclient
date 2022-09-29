@@ -31,9 +31,6 @@ _standard_capabilities = {
     "xpath" : False
 }
 
-class NcclientException(Exception):
-    pass
-
 
 class NcclientKeywords(object):
     ROBOT_LIBRARY_SCOPE = 'Global'
@@ -78,38 +75,34 @@ class NcclientKeywords(object):
 
         """
 
-        try:
-            logger.info('Creating session %s, %s' % (args, kwds))
-            alias = kwds.get('alias')
-            session = manager.connect(
-                host=kwds.get('host'),
-                port=int(kwds.get('port') or 830),
-                username=str(kwds.get('username')),
-                password=str(kwds.get('password')),
-                hostkey_verify=False,
-                look_for_keys= False if str(kwds.get('look_for_keys')).lower() == 'false' else True,
-                key_filename=str(kwds.get('key_filename')),
-            )
-            self._cache.register(session, alias=alias)
-            all_server_capabilities = session.server_capabilities
-            self.client_capabilities = session.client_capabilities
-            self.session_id = session.session_id
-            self.connected = session.connected
-            self.timeout = session.timeout
-            # Store YANG Modules and Capabilities
-            self.yang_modules, server_capabilities = \
-                    self._parse_server_capabilities(all_server_capabilities)
-            # Parse server capabilities
-            for sc in server_capabilities:
-                self.server_capabilities[sc] = True
+        logger.info('Creating session %s, %s' % (args, kwds))
+        alias = kwds.get('alias')
+        session = manager.connect(
+            host=kwds.get('host'),
+            port=int(kwds.get('port') or 830),
+            username=str(kwds.get('username')),
+            password=str(kwds.get('password')),
+            hostkey_verify=False,
+            look_for_keys= False if str(kwds.get('look_for_keys')).lower() == 'false' else True,
+            key_filename=str(kwds.get('key_filename')),
+        )
+        self._cache.register(session, alias=alias)
+        all_server_capabilities = session.server_capabilities
+        self.client_capabilities = session.client_capabilities
+        self.session_id = session.session_id
+        self.connected = session.connected
+        self.timeout = session.timeout
+        # Store YANG Modules and Capabilities
+        self.yang_modules, server_capabilities = \
+                self._parse_server_capabilities(all_server_capabilities)
+        # Parse server capabilities
+        for sc in server_capabilities:
+            self.server_capabilities[sc] = True
 
-            logger.debug("%s, %s, %s, %s" %(self.server_capabilities, 
-                        self.yang_modules, self.client_capabilities,
-                        self.timeout))
-            return True
-        except NcclientException as e:
-            logger.error(str(e))
-            raise str(e)
+        logger.debug("%s, %s, %s, %s" %(self.server_capabilities, 
+                    self.yang_modules, self.client_capabilities,
+                    self.timeout))
+        return True
 
     def get_server_capabilities(self):
         """ Returns server caps """
@@ -125,36 +118,31 @@ class NcclientKeywords(object):
         """
         module_list = []
         server_caps = []
-        try:
-            for sc in server_capabilities:
-                # urn:ietf:params:netconf:capability:{name}:1.x
-                server_caps_match = re.match(
-                        r'urn:ietf:params:netconf:capability:(\S+):\d+.\d+',
-                        sc)
-                if server_caps_match:
-                    server_caps.append(server_caps_match.group(1))
-                modules_match = re.findall(
-                    r'(\S+)\?module=(\S+)&revision=' +
-                    '(\d{4}-\d{2}-\d{2})&?(features=(\S+))?',
+        for sc in server_capabilities:
+            # urn:ietf:params:netconf:capability:{name}:1.x
+            server_caps_match = re.match(
+                    r'urn:ietf:params:netconf:capability:(\S+):\d+.\d+',
                     sc)
-                if modules_match:
-                    namespace, name, revision, _, features = modules_match[0]
-                    if features:
-                        module_list.append(
-                            {"name": name, "revision": revision,
-                            "namespace": namespace,
-                            "features": features.split(",")})
-                    else:
-                        module_list.append({"name":name,
-                                            "revision":revision,
-                                            "namespace": namespace})
+            if server_caps_match:
+                server_caps.append(server_caps_match.group(1))
+            modules_match = re.findall(
+                r'(\S+)\?module=(\S+)&revision=' +
+                '(\d{4}-\d{2}-\d{2})&?(features=(\S+))?',
+                sc)
+            if modules_match:
+                namespace, name, revision, _, features = modules_match[0]
+                if features:
+                    module_list.append(
+                        {"name": name, "revision": revision,
+                        "namespace": namespace,
+                        "features": features.split(",")})
+                else:
+                    module_list.append({"name":name,
+                                        "revision":revision,
+                                        "namespace": namespace})
 
-            module_dict = {"module-info": module_list}
-            return module_dict, server_caps
-        except NcclientException as e:
-            logger.error(list(server_capabilities))
-            logger.error(str(e))
-            raise str(e)
+        module_dict = {"module-info": module_list}
+        return module_dict, server_caps
 
     def get_config(self, alias, source, filter_type='subtree',
                     filter_criteria=None):
@@ -186,16 +174,12 @@ class NcclientKeywords(object):
         """
         session = self._cache.switch(alias)
         gc_filter = None
-        try:
-            if filter_criteria:
-                gc_filter = (filter_type, filter_criteria)
+        if filter_criteria:
+            gc_filter = (filter_type, filter_criteria)
 
-            logger.info("alias: %s, source: %s, filter: %s:" % (alias, source,
-                                                                gc_filter))
-            return session.get_config(source, gc_filter).data
-        except NcclientException as e:
-            logger.error(str(e))
-            raise str(e)
+        logger.info("alias: %s, source: %s, filter: %s:" % (alias, source,
+                                                            gc_filter))
+        return session.get_config(source, gc_filter).data
 
     def edit_config(self, alias, target, config, default_operation=None,
                     test_option=None, error_option=None, format='xml'):
@@ -226,16 +210,11 @@ class NcclientKeywords(object):
         """
         session = self._cache.switch(alias)
 
-        try:
-            logger.info("target: %s, config: %s, default_operation: %s \
-               test_option: %s,  error_option: %s" 
-               % (target, config, default_operation, test_option, error_option))
-            session.edit_config(config, format, target, default_operation,
-				     test_option, error_option)
-
-        except NcclientException as e:
-            logger.error(str(e))
-            raise str(e)
+        logger.info("target: %s, config: %s, default_operation: %s \
+           test_option: %s,  error_option: %s" 
+           % (target, config, default_operation, test_option, error_option))
+        session.edit_config(config, format, target, default_operation,
+			     test_option, error_option)
 
     def copy_config(self, alias, source, target):
         """
@@ -252,13 +231,9 @@ class NcclientKeywords(object):
         destination of the copy operation
         """
         session = self._cache.switch(alias)
-        try:
-            logger.info("alias: %s, source: %s, target: %s" % (alias, source,
+        logger.info("alias: %s, source: %s, target: %s" % (alias, source,
                                                                 target))
-            session.copy_config(source, target)
-        except NcclientException as e:
-            logger.error(str(e))
-            raise str(e)
+        session.copy_config(source, target)
 
     def delete_config(self, alias, target):
         """
@@ -270,12 +245,8 @@ class NcclientKeywords(object):
         delete.
         """
         session = self._cache.switch(alias)
-        try:
-            logger.info("alias: %s, target: %s" % (alias, target))
-            session.delete_config(target)
-        except NcclientException as e:
-            logger.error(str(e))
-            raise str(e)
+        logger.info("alias: %s, target: %s" % (alias, target))
+        session.delete_config(target)
 
     def dispatch(self, alias, rpc_command, source=None, filter=None):
         """
@@ -290,13 +261,9 @@ class NcclientKeywords(object):
         (by default entire configuration is retrieved)
         """
         session = self._cache.switch(alias)
-        try:
-            logger.info("alias: %s, rpc_command: %s, source: %s, filter: %s" 
-                                    % (alias, rpc_command, source, filter))
-            session.dispatch(rpc_command, source, filter)
-        except NcclientException as e:
-            logger.error(str(e))
-            raise str(e)
+        logger.info("alias: %s, rpc_command: %s, source: %s, filter: %s" 
+                                % (alias, rpc_command, source, filter))
+        session.dispatch(rpc_command, source, filter)
 
     def lock(self, alias, target):
         """
@@ -307,12 +274,8 @@ class NcclientKeywords(object):
         ``target`` is the name of the configuration datastore to lock
         """
         session = self._cache.switch(alias)
-        try:
-            logger.info("alias: %s, target: %s" % (alias, target))
-            session.lock(target)
-        except NcclientException as e:
-            logger.error(str(e))
-            raise str(e)
+        logger.info("alias: %s, target: %s" % (alias, target))
+        session.lock(target)
 
     def unlock(self, alias, target):
         """
@@ -324,12 +287,8 @@ class NcclientKeywords(object):
         ``target`` is the name of the configuration datastore to unlock
         """
         session = self._cache.switch(alias)
-        try:
-            logger.info("alias: %s, target: %s" % (alias, target))
-            session.unlock(target)
-        except NcclientException as e:
-            logger.error(str(e))
-            raise str(e)
+        logger.info("alias: %s, target: %s" % (alias, target))
+        session.unlock(target)
 
     def locked(self, alias, target):
         """
@@ -341,12 +300,8 @@ class NcclientKeywords(object):
         ``target`` is the name of the configuration datastore to unlock
         """
         session = self._cache.switch(alias)
-        try:
-            logger.info("alias: %s, target: %s" %(alias, target))
-            session.locked(target)
-        except NcclientException as e:
-            logger.error(str(e))
-            raise str(e)
+        logger.info("alias: %s, target: %s" %(alias, target))
+        session.locked(target)
 
     def get(self, alias, filter_type='subtree', filter_criteria=None):
         """
@@ -376,13 +331,9 @@ class NcclientKeywords(object):
         """
         session = self._cache.switch(alias)
         get_filter = None
-        try:
-            if filter_criteria:
-                get_filter = (filter_type, filter_criteria)
-            return session.get(get_filter).data
-        except NcclientException as e:
-            logger.error(str(e))
-            raise str(e)
+        if filter_criteria:
+            get_filter = (filter_type, filter_criteria)
+        return session.get(get_filter).data
 
     def close_session(self, alias):
         """
@@ -392,11 +343,7 @@ class NcclientKeywords(object):
         ``alias`` that will be used to identify the Session object in the cache
         """
         session = self._cache.switch(alias)
-        try:
-            session.close_session()
-        except NcclientException as e:
-            logger.error(str(e))
-            raise str(e)
+        session.close_session()
 
     def kill_session(self, alias, session_id):
         """
@@ -408,12 +355,8 @@ class NcclientKeywords(object):
         terminated as a string
         """
         session = self._cache.switch(alias)
-        try:
-            logger.info("alias: %s, session_id: %s" %(alias, session_id))
-            session.kill_session(session_id)
-        except NcclientException as e:
-            logger.error(str(e))
-            raise str(e)
+        logger.info("alias: %s, session_id: %s" %(alias, session_id))
+        session.kill_session(session_id)
 
     def commit(self, alias, confirmed=False, timeout=None):
         """
@@ -433,13 +376,9 @@ class NcclientKeywords(object):
         ``timeout`` specifies the confirm timeout in seconds
         """
         session = self._cache.switch(alias)
-        try:
-            logger.info("alias: %s, confirmed: %s, timeout:%s" % (alias,
+        logger.info("alias: %s, confirmed: %s, timeout:%s" % (alias,
                                                             confirmed, timeout))
-            session.commit(confirmed, timeout)
-        except NcclientException as e:
-            logger.error(str(e))
-            raise str(e)
+        session.commit(confirmed, timeout)
 
     def discard_changes(self, alias):
         """
@@ -450,11 +389,7 @@ class NcclientKeywords(object):
 
         """
         session = self._cache.switch(alias)
-        try:
-            session.discard_changes()
-        except NcclientException as e:
-            logger.error(str(e))
-            raise str(e)
+        session.discard_changes()
 
     def validate(self, alias, source):
         """
@@ -466,12 +401,8 @@ class NcclientKeywords(object):
         config element containing the configuration subtree to be validated
         """
         session = self._cache.switch(alias)
-        try:
-            logger.info("alias: %s, source: %s" % (alias, source))
-            session.validate(source)
-        except NcclientException as e:
-            logger.error(str(e))
-            raise str(e)
+        logger.info("alias: %s, source: %s" % (alias, source))
+        session.validate(source)
 
     def close_session(self, alias):
         """
@@ -481,9 +412,4 @@ class NcclientKeywords(object):
         ``alias`` that will be used to identify the Session object in the cache
         """
         session = self._cache.switch(alias)
-        try:
-            session.close_session()
-        except NcclientException as e:
-            logger.error(str(e))
-            raise str(e)
-
+        session.close_session()
