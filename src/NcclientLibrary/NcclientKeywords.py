@@ -73,7 +73,7 @@ class NcclientKeywords(object):
     def _manager(self):
         return self._active_connection._manager
 
-    def connect(self, *args, **kwds):
+    def open_netconf_connection(self, *args, **kwds):
         """
         Initialize a Manager over the SSH transport.
 
@@ -121,6 +121,24 @@ class NcclientKeywords(object):
         connection = NetconfConnection(session)
         self._active_connection = connection
         return self._cache.register(self._active_connection, alias)
+
+    def close_netconf_connection(self):
+        """
+        Request graceful termination of the NETCONF session, and also close the
+        transport.
+
+        """
+        self._manager.close_session()
+
+    def kill_netconf_connection(self, session_id):
+        """
+        Force the termination of a NETCONF session (not the current one!)
+
+        ``session_id`` is the session identifier of the NETCONF session to be
+        terminated as a string
+        """
+        logger.info("session_id: %s" %(session_id))
+        self._manager.kill_session(session_id)
 
     def switch_netconf_connection(self, index_or_alias):
         """Switches between active connections using an index or alias.
@@ -335,24 +353,6 @@ class NcclientKeywords(object):
             get_filter = (filter_type, filter_criteria)
         return self._manager.get(get_filter).data
 
-    def close_session(self):
-        """
-        Request graceful termination of the NETCONF session, and also close the
-        transport.
-
-        """
-        self._manager.close_session()
-
-    def kill_session(self, session_id):
-        """
-        Force the termination of a NETCONF session (not the current one!)
-
-        ``session_id`` is the session identifier of the NETCONF session to be
-        terminated as a string
-        """
-        logger.info("session_id: %s" %(session_id))
-        self._manager.kill_session(session_id)
-
     def commit(self,confirmed=False, timeout=None):
         """
         Commit the candidate configuration as the device?s new current
@@ -387,10 +387,3 @@ class NcclientKeywords(object):
         """
         logger.info("source: %s" % (source))
         self._manager.validate(source)
-
-    def close_session(self):
-        """
-        Request graceful termination of the NETCONF session, and also close the
-        transport.
-        """
-        self._manager.close_session()
