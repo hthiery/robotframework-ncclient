@@ -32,11 +32,23 @@ _standard_capabilities = {
 }
 
 
+class NetconfConnection:
+
+    def __init__(self, manager):
+        self._manager = manager
+        pass
+
+    def close(self):
+        # nothing to do atm
+        pass
+
+
 class NcclientKeywords(object):
     ROBOT_LIBRARY_SCOPE = 'Global'
 
     def __init__(self):
         self._cache = robot.utils.ConnectionCache('No sessions created')
+        self._active_connection = None
 
         # Specify whether operations are executed asynchronously (True) or 
         # synchronously (False) (the default).
@@ -56,6 +68,10 @@ class NcclientKeywords(object):
         self.session_id = None
         # Whether currently connected to the NETCONF server.
         self.connected = None
+
+    @property
+    def _manager(self):
+        return self._active_connection._manager
 
     def connect(self, *args, **kwds):
         """
@@ -86,7 +102,6 @@ class NcclientKeywords(object):
             look_for_keys= False if str(kwds.get('look_for_keys')).lower() == 'false' else True,
             key_filename=str(kwds.get('key_filename')),
         )
-        self._cache.register(session, alias=alias)
         all_server_capabilities = session.server_capabilities
         self.client_capabilities = session.client_capabilities
         self.session_id = session.session_id
@@ -102,7 +117,22 @@ class NcclientKeywords(object):
         logger.debug("%s, %s, %s, %s" %(self.server_capabilities, 
                     self.yang_modules, self.client_capabilities,
                     self.timeout))
-        return True
+
+        connection = NetconfConnection(session)
+        self._active_connection = connection
+        return self._cache.register(self._active_connection, alias)
+
+    def switch_netconf_connection(self, index_or_alias):
+        """Switches between active connections using an index or alias.
+
+        ``index_or_alias`` The index is got from `connect` keyword, and an
+                           alias can be given to it.
+
+        Returns the index of previously active conection.
+        """
+        old_index = self._cache.current_index
+        self._active_connection = self._cache.switch(index_or_alias)
+        return old_index
 
     def get_server_capabilities(self):
         """ Returns server caps """
@@ -144,12 +174,9 @@ class NcclientKeywords(object):
         module_dict = {"module-info": module_list}
         return module_dict, server_caps
 
-    def get_config(self, alias, source, filter_type='subtree',
-                    filter_criteria=None):
+    def get_config(self, source, filter_type='subtree', filter_criteria=None):
         """
         Retrieve all or part of a specified configuration.
-
-        ``alias`` that will be used to identify the Session object in the cache
 
         ``source`` name of the configuration datastore being queried
 
@@ -172,22 +199,18 @@ class NcclientKeywords(object):
 
         A <filter> element as an XML string or an Element object.
         """
-        session = self._cache.switch(alias)
         gc_filter = None
         if filter_criteria:
             gc_filter = (filter_type, filter_criteria)
 
-        logger.info("alias: %s, source: %s, filter: %s:" % (alias, source,
-                                                            gc_filter))
-        return session.get_config(source, gc_filter).data
+        logger.info("source: %s, filter: %s:" % (source, gc_filter))
+        return self._manager.get_config(source, gc_filter).data
 
-    def edit_config(self, alias, target, config, default_operation=None,
+    def edit_config(self, target, config, default_operation=None,
                     test_option=None, error_option=None, format='xml'):
         """
         Loads all or part of the specified config to the target
          configuration datastore.
-
-        ``alias`` that will be used to identify the Session object in the cache
 
         ``target`` is the name of the configuration datastore being edited
 
@@ -208,20 +231,16 @@ class NcclientKeywords(object):
         adaptability.
 
         """
-        session = self._cache.switch(alias)
-
         logger.info("target: %s, config: %s, default_operation: %s \
            test_option: %s,  error_option: %s" 
            % (target, config, default_operation, test_option, error_option))
-        session.edit_config(config, format, target, default_operation,
+        self._manager.edit_config(config, format, target, default_operation,
 			     test_option, error_option)
 
-    def copy_config(self, alias, source, target):
+    def copy_config(self, source, target):
         """
         Create or replace an entire configuration datastore with the contents
         of another complete configuration datastore.
-
-        ``alias`` that will be used to identify the Session object in the cache
 
         ``source`` is the name of the configuration datastore to use as the
         source of the copy operation or config element containing the
@@ -230,28 +249,22 @@ class NcclientKeywords(object):
         ``target`` is the name of the configuration datastore to use as the
         destination of the copy operation
         """
-        session = self._cache.switch(alias)
-        logger.info("alias: %s, source: %s, target: %s" % (alias, source,
+        logger.info("source: %s, target: %s" % (source,
                                                                 target))
-        session.copy_config(source, target)
+        self._manager.copy_config(source, target)
 
-    def delete_config(self, alias, target):
+    def delete_config(self, target):
         """
         Delete a configuration datastore.
-
-        ``alias`` that will be used to identify the Session object in the cache
 
         ``target`` specifies the name or URL of configuration datastore to
         delete.
         """
-        session = self._cache.switch(alias)
-        logger.info("alias: %s, target: %s" % (alias, target))
-        session.delete_config(target)
+        logger.info("target: %s" % (target))
+        self._manager.delete_config(target)
 
-    def dispatch(self, alias, rpc_command, source=None, filter=None):
+    def dispatch(self, rpc_command, source=None, filter=None):
         """
-        ``alias`` that will be used to identify the Session object in the cache
-
         ``rpc_command`` specifies rpc command to be dispatched either in plain
         text or in xml element format (depending on command)
 
@@ -260,54 +273,42 @@ class NcclientKeywords(object):
         ``filter`` specifies the portion of the configuration to retrieve
         (by default entire configuration is retrieved)
         """
-        session = self._cache.switch(alias)
-        logger.info("alias: %s, rpc_command: %s, source: %s, filter: %s" 
-                                % (alias, rpc_command, source, filter))
-        session.dispatch(rpc_command, source, filter)
+        logger.info("rpc_command: %s, source: %s, filter: %s" 
+                                % (rpc_command, source, filter))
+        self._manager.dispatch(rpc_command, source, filter)
 
-    def lock(self, alias, target):
+    def lock(self, target):
         """
         Allows the client to lock the configuration system of a device.
 
-        ``alias`` that will be used to identify the Session object in the cache
-
         ``target`` is the name of the configuration datastore to lock
         """
-        session = self._cache.switch(alias)
-        logger.info("alias: %s, target: %s" % (alias, target))
-        session.lock(target)
+        logger.info("target: %s" % (target))
+        self._manager.lock(target)
 
-    def unlock(self, alias, target):
+    def unlock(self, target):
         """
         Release a configuration lock, previously obtained with the lock
         operation.
 
-        ``alias`` that will be used to identify the Session object in the cache
-
         ``target`` is the name of the configuration datastore to unlock
         """
-        session = self._cache.switch(alias)
-        logger.info("alias: %s, target: %s" % (alias, target))
-        session.unlock(target)
+        logger.info("target: %s" % (target))
+        self._manager.unlock(target)
 
-    def locked(self, alias, target):
+    def locked(self, target):
         """
         Returns a context manager for a lock on a datastore, where target
         is the name of the configuration datastore to lock.
 
-        ``alias`` that will be used to identify the Session object in the cache
-
         ``target`` is the name of the configuration datastore to unlock
         """
-        session = self._cache.switch(alias)
-        logger.info("alias: %s, target: %s" %(alias, target))
-        session.locked(target)
+        logger.info("target: %s" %(target))
+        self._manager.locked(target)
 
-    def get(self, alias, filter_type='subtree', filter_criteria=None):
+    def get(self, filter_type='subtree', filter_criteria=None):
         """
         Retrieve running configuration and device state information.
-
-        ``alias`` that will be used to identify the Session object in the cache
 
         ``filter_typoe`` specifies the portion of the configuration to retrieve (by
         default entire configuration is retrieved)
@@ -329,36 +330,30 @@ class NcclientKeywords(object):
 
         A <filter> element as an XML string or an Element object.
         """
-        session = self._cache.switch(alias)
         get_filter = None
         if filter_criteria:
             get_filter = (filter_type, filter_criteria)
-        return session.get(get_filter).data
+        return self._manager.get(get_filter).data
 
-    def close_session(self, alias):
+    def close_session(self):
         """
         Request graceful termination of the NETCONF session, and also close the
         transport.
 
-        ``alias`` that will be used to identify the Session object in the cache
         """
-        session = self._cache.switch(alias)
-        session.close_session()
+        self._manager.close_session()
 
-    def kill_session(self, alias, session_id):
+    def kill_session(self, session_id):
         """
         Force the termination of a NETCONF session (not the current one!)
-
-        ``alias`` that will be used to identify the Session object in the cache
 
         ``session_id`` is the session identifier of the NETCONF session to be
         terminated as a string
         """
-        session = self._cache.switch(alias)
-        logger.info("alias: %s, session_id: %s" %(alias, session_id))
-        session.kill_session(session_id)
+        logger.info("session_id: %s" %(session_id))
+        self._manager.kill_session(session_id)
 
-    def commit(self, alias, confirmed=False, timeout=None):
+    def commit(self,confirmed=False, timeout=None):
         """
         Commit the candidate configuration as the device?s new current
         configuration. Depends on the :candidate capability.
@@ -369,47 +364,33 @@ class NcclientKeywords(object):
         confirming commit may have the confirmed parameter but this is not
         required. Depends on the :confirmed-commit capability.
 
-        ``alias`` that will be used to identify the Session object in the cache
-
         ``confirmed`` whether this is a confirmed commit
 
         ``timeout`` specifies the confirm timeout in seconds
         """
-        session = self._cache.switch(alias)
-        logger.info("alias: %s, confirmed: %s, timeout:%s" % (alias,
-                                                            confirmed, timeout))
-        session.commit(confirmed, timeout)
+        logger.info("confirmed: %s, timeout:%s" % (confirmed, timeout))
+        self._manager.commit(confirmed, timeout)
 
-    def discard_changes(self, alias):
+    def discard_changes(self):
         """
         Revert the candidate configuration to the currently running
         configuration. Any uncommitted changes are discarded.
-
-        ``alias`` that will be used to identify the Session object in the cache
-
         """
-        session = self._cache.switch(alias)
-        session.discard_changes()
+        self._manager.discard_changes()
 
-    def validate(self, alias, source):
+    def validate(self, source):
         """
         Validate the contents of the specified configuration.
-
-        ``alias`` that will be used to identify the Session object in the cache
 
         ``source`` is the name of the configuration datastore being validated or
         config element containing the configuration subtree to be validated
         """
-        session = self._cache.switch(alias)
-        logger.info("alias: %s, source: %s" % (alias, source))
-        session.validate(source)
+        logger.info("source: %s" % (source))
+        self._manager.validate(source)
 
-    def close_session(self, alias):
+    def close_session(self):
         """
         Request graceful termination of the NETCONF session, and also close the
         transport.
-
-        ``alias`` that will be used to identify the Session object in the cache
         """
-        session = self._cache.switch(alias)
-        session.close_session()
+        self._manager.close_session()
